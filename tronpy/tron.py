@@ -8,8 +8,7 @@ from tronpy import keys
 from tronpy.contract import Contract, ShieldedTRC20, ContractMethod
 from tronpy.keys import PrivateKey
 from tronpy.providers import HTTPProvider
-from tronpy.abi import tron_abi
-from tronpy.defaults import conf_for_name
+from tronpy.defaults import conf_for_name, merge_dicts
 from tronpy.exceptions import (
     BadSignature,
     BadKey,
@@ -23,7 +22,6 @@ from tronpy.exceptions import (
     ApiError,
     AddressNotFound,
     TransactionNotFound,
-    TvmError,
 )
 
 TAddress = str
@@ -79,19 +77,6 @@ class TransactionRet(dict):
             raise TypeError("Not a smart contract call")
 
         receipt = self.wait(timeout, interval, solid)
-
-        if receipt['result'] == 'FAILED':
-            msg = receipt['resMessage']
-
-            if receipt['receipt']['result'] == 'REVERT':
-                try:
-                    result = receipt.get('contractResult', [])
-                    if result and len(result[0]) > (4 + 32) * 2:
-                        error_msg = tron_abi.decode_single('string', bytes.fromhex(result[0])[4 + 32 :])
-                        msg = "{}: {}".format(msg, error_msg)
-                except Exception:
-                    pass
-            raise TvmError(msg)
 
         return self._method.parse_output(receipt['contractResult'][0])
 
@@ -204,6 +189,11 @@ class TransactionBuilder(object):
         self._raw_data["ref_block_bytes"] = ref_block_id[12:16]
         # last half part of block hash
         self._raw_data["ref_block_hash"] = ref_block_id[16:32]
+        
+        if 'parameter' in kwargs:
+            merge_dicts(self._raw_data['contract'][0]['parameter'], kwargs['parameter'])
+
+        print("_raw_data:", json.dumps(self._raw_data))
 
         if self._method:
             return Transaction(self._raw_data, client=self._client, method=self._method)
@@ -319,8 +309,7 @@ class Trx(object):
     def account_update(self, owner: TAddress, name: str) -> "TransactionBuilder":
         """Update account name. An account can only set name once."""
         return self._build_transaction(
-            "UpdateAccountContract",
-            {"owner_address": keys.to_hex_address(owner), "account_name": name.encode().hex()},
+            "UpdateAccountContract", {"owner_address": keys.to_hex_address(owner), "account_name": name.encode().hex()},
         )
 
     def freeze_balance(
@@ -775,16 +764,8 @@ class Tron(object):
             },
         )
         self._handle_api_error(ret)
-        msg = ret['result']['message']
         if 'message' in ret['result']:
-            result = ret.get('constant_result', [])
-            try:
-                if result and len(result[0]) > (4 + 32) * 2:
-                    error_msg = tron_abi.decode_single('string', bytes.fromhex(result[0])[4 + 32 :])
-                    msg = "{}: {}".format(msg, error_msg)
-            except Exception:
-                pass
-            raise TvmError(msg)
+            raise TransactionError(ret['result']['message'])
         return ret["constant_result"][0]
 
     # Transaction handling

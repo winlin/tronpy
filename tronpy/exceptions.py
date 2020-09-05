@@ -25,8 +25,6 @@ class UnknownError(Exception):
 class TransactionError(Exception):
     pass
 
-class TvmError(Exception):
-    pass
 
 class ValidationError(Exception):
     pass
